@@ -210,6 +210,23 @@ function leaveRoom() {
 }
 
 /* ---------- Live room ---------- */
+let healing = false;
+async function healRoom(row) {
+  if (!row) {                                            // room row hi nahi hai -> wahi code se dobara banao
+    const r = await sb.from("rooms").insert({code: roomCode, members: [me]});
+    if (r.error && r.error.code !== "23505") { toast("Room dobara nahi bana: " + r.error.message); return; }
+    if (!r.error) {
+      const c = await sb.from("categories").insert(DEFAULT_CATS.map(n => ({room_code: roomCode, name: n})));
+      if (c.error && c.error.code !== "23505") toast("Categories nahi bani: " + c.error.message);
+    }
+    if (r.error) row = (await sb.from("rooms").select("members").eq("code", roomCode).maybeSingle()).data;   // dost ne pehle bana diya
+    else return;
+  }
+  if (row && !row.members.includes(me)) {
+    const u = await sb.from("rooms").update({members: [...row.members, me]}).eq("code", roomCode);
+    if (u.error) toast("Members update nahi hua: " + u.error.message);
+  }
+}
 async function loadAll() {
   const [m, c, e, cl] = await Promise.all([
     sb.from("rooms").select("members").eq("code", roomCode).maybeSingle(),
@@ -218,6 +235,9 @@ async function loadAll() {
     sb.from("month_closings").select("*").eq("room_code", roomCode)
   ]);
   closings = cl.error ? [] : cl.data;
+  if (!m.error && roomCode && (!m.data || !m.data.members.includes(me))) {   // room DB se ud gaya ya naam members mein nahi -> khud theek karo
+    if (!healing) { healing = true; try { await healRoom(m.data); } finally { healing = false; } return loadAll(); }
+  }
   if (m.error || c.error || e.error) { toast("Data load nahi hua: " + (m.error || c.error || e.error).message); return; }
   members = (m.data && m.data.members) || [];
   cats = c.data.map(x => x.name);
